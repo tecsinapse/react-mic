@@ -166,6 +166,7 @@ export class MicrophoneRecorderMp3 {
       navigator.mediaDevices
         .getUserMedia(constraints)
         .then(async str => {
+          console.log('recording started')
           stream = str
           const { recorderParams } = mediaOptions
           mediaRecorder = new Recorder({
