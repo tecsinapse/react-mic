@@ -1,4 +1,17 @@
 language: node_js
 node_js:
-  - 9
-  - 8
+  - 12
+install:
+  - yarn
+script:
+  - yarn build
+
+cache:
+  yarn: true
+
+notifications:
+  email:
+    recipients:
+      - lip@tecsinapse.com.br
+    on_success: never # default: change
+    on_failure: always # default: always

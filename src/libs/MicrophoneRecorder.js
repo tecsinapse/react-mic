@@ -203,10 +203,12 @@ export class MicrophoneRecorderMp3 {
 
   stopRecording() {
     if (mediaRecorder) {
+      mediaRecorder.stop()
       stream.getAudioTracks().forEach(track => {
         track.stop()
       })
       AudioContext.resetAnalyser()
+      audioCtx.suspend()
       this.onStop()
     }
   }
