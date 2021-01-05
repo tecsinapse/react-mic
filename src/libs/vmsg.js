@@ -94,51 +94,51 @@ function inlineWorker() {
   onmessage = (e) => {
     const msg = e.data;
     switch (msg.type) {
-    case "init":
-      const { wasmURL, shimURL } = msg.data;
-      Promise.resolve().then(() => {
-        if (self.WebAssembly && !testSafariWebAssemblyBug()) {
-          delete self.WebAssembly;
-        }
-        if (!self.WebAssembly) {
-          importScripts(shimURL);
-        }
-        memory = new WebAssembly.Memory({
-          initial: TOTAL_MEMORY / WASM_PAGE_SIZE,
-          maximum: TOTAL_MEMORY / WASM_PAGE_SIZE,
+      case "init":
+        const { wasmURL, shimURL } = msg.data;
+        Promise.resolve().then(() => {
+          if (self.WebAssembly && !testSafariWebAssemblyBug()) {
+            delete self.WebAssembly;
+          }
+          if (!self.WebAssembly) {
+            importScripts(shimURL);
+          }
+          memory = new WebAssembly.Memory({
+            initial: TOTAL_MEMORY / WASM_PAGE_SIZE,
+            maximum: TOTAL_MEMORY / WASM_PAGE_SIZE,
+          });
+          return {
+            memory: memory,
+            pow: Math.pow,
+            exit: exit,
+            powf: Math.pow,
+            exp: Math.exp,
+            sqrtf: Math.sqrt,
+            cos: Math.cos,
+            log: Math.log,
+            sin: Math.sin,
+            sbrk: sbrk,
+          };
+        }).then(Runtime => {
+          return fetchAndInstantiate(wasmURL, {env: Runtime})
+        }).then(wasm => {
+          FFI = wasm.instance.exports;
+          postMessage({type: "init", data: null});
+        }).catch(err => {
+          postMessage({type: "init-error", data: err.toString()});
         });
-        return {
-          memory: memory,
-          pow: Math.pow,
-          exit: exit,
-          powf: Math.pow,
-          exp: Math.exp,
-          sqrtf: Math.sqrt,
-          cos: Math.cos,
-          log: Math.log,
-          sin: Math.sin,
-          sbrk: sbrk,
-        };
-      }).then(Runtime => {
-        return fetchAndInstantiate(wasmURL, {env: Runtime})
-      }).then(wasm => {
-        FFI = wasm.instance.exports;
-        postMessage({type: "init", data: null});
-      }).catch(err => {
-        postMessage({type: "init-error", data: err.toString()});
-      });
-      break;
-    case "start":
-      if (!vmsg_init(msg.data)) return postMessage({type: "error", data: "vmsg_init"});
-      break;
-    case "data":
-      if (!vmsg_encode(msg.data)) return postMessage({type: "error", data: "vmsg_encode"});
-      break;
-    case "stop":
-      const blob = vmsg_flush();
-      if (!blob) return postMessage({type: "error", data: "vmsg_flush"});
-      postMessage({type: "stop", data: blob});
-      break;
+        break;
+      case "start":
+        if (!vmsg_init(msg.data)) return postMessage({type: "error", data: "vmsg_init"});
+        break;
+      case "data":
+        if (!vmsg_encode(msg.data)) return postMessage({type: "error", data: "vmsg_encode"});
+        break;
+      case "stop":
+        const blob = vmsg_flush();
+        if (!blob) return postMessage({type: "error", data: "vmsg_flush"});
+        postMessage({type: "stop", data: blob});
+        break;
     }
   };
 }
@@ -170,7 +170,10 @@ export class Recorder {
     if (this.encNode) this.encNode.onaudioprocess = null;
     if (this.stream) this.stopTracks();
     if (this.audioCtx) this.audioCtx.close();
-    if (this.worker) this.worker.terminate();
+    if (this.worker) {
+      this.worker.terminate();
+      this.worker = null;
+    }
     if (this.workerURL) URL.revokeObjectURL(this.workerURL);
     if (this.blobURL) URL.revokeObjectURL(this.blobURL);
   }
@@ -186,17 +189,17 @@ export class Recorder {
   initAudio() {
     const getUserMedia = navigator.mediaDevices && navigator.mediaDevices.getUserMedia
       ? function(constraints) {
-          return navigator.mediaDevices.getUserMedia(constraints);
-        }
+        return navigator.mediaDevices.getUserMedia(constraints);
+      }
       : function(constraints) {
-          const oldGetUserMedia = navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
-          if (!oldGetUserMedia) {
-            return Promise.reject(new Error("getUserMedia is not implemented in this browser"));
-          }
-          return new Promise(function(resolve, reject) {
-            oldGetUserMedia.call(navigator, constraints, resolve, reject);
-          });
-        };
+        const oldGetUserMedia = navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+        if (!oldGetUserMedia) {
+          return Promise.reject(new Error("getUserMedia is not implemented in this browser"));
+        }
+        return new Promise(function(resolve, reject) {
+          oldGetUserMedia.call(navigator, constraints, resolve, reject);
+        });
+      };
 
     return getUserMedia({audio: true}).then((stream) => {
       this.stream = stream;
@@ -221,7 +224,7 @@ export class Recorder {
   }
 
   initWorker() {
-    if (!this.stream) throw new Error("missing audio initialization");
+    if (this.worker) return Promise.resolve();
     // https://stackoverflow.com/a/19201292
     const blob = new Blob(
       ["(", inlineWorker.toString(), ")()"],
@@ -234,24 +237,26 @@ export class Recorder {
       worker.onmessage = (e) => {
         const msg = e.data;
         switch (msg.type) {
-        case "init":
-          resolve();
-          break;
-        case "init-error":
-          reject(new Error(msg.data));
-          break;
-        // TODO(Kagami): Error handling.
-        case "error":
-        case "internal-error":
-          console.error("Worker error:", msg.data);
-          if (this.reject) this.reject(msg.data);
-          break;
-        case "stop":
-          this.blob = msg.data;
-          this.blobURL = URL.createObjectURL(msg.data);
-          if (this.onStop) this.onStop();
-          if (this.resolve) this.resolve(this.blob);
-          break;
+          case "init":
+            resolve();
+            break;
+          case "init-error":
+            this.close();
+            reject(new Error(msg.data));
+            break;
+          // TODO(Kagami): Error handling.
+          case "error":
+          case "internal-error":
+            this.close();
+            console.error("Worker error:", msg.data);
+            if (this.reject) this.reject(msg.data);
+            break;
+          case "stop":
+            this.blob = msg.data;
+            this.blobURL = URL.createObjectURL(msg.data);
+            if (this.onStop) this.onStop();
+            if (this.resolve) this.resolve(this.blob);
+            break;
         }
       }
     });
@@ -283,6 +288,7 @@ export class Recorder {
     this.encNode.disconnect();
     this.encNode.onaudioprocess = null;
     this.stopTracks();
+    this.audioCtx.close();
     this.worker.postMessage({type: "stop", data: null});
     return new Promise((resolve, reject) => {
       this.resolve = resolve;
@@ -292,7 +298,7 @@ export class Recorder {
 
   stopTracks() {
     // Might be missed in Safari and old FF/Chrome per MDN.
-    if (this.stream && this.stream.getTracks) {
+    if (this.stream.getTracks) {
       // Hide browser's recording indicator.
       this.stream.getTracks().forEach((track) => track.stop());
     }
@@ -361,6 +367,7 @@ export class Form {
     const recordBtn = this.recordBtn = document.createElement("button");
     recordBtn.className = "vmsg-button vmsg-record-button";
     recordBtn.textContent = "●";
+    recordBtn.title = "Start Recording";
     recordBtn.addEventListener("click", () => this.startRecording());
     recordRow.appendChild(recordBtn);
 
@@ -368,6 +375,7 @@ export class Form {
     stopBtn.className = "vmsg-button vmsg-stop-button";
     stopBtn.style.display = "none";
     stopBtn.textContent = "■";
+    stopBtn.title = "Stop Recording";
     stopBtn.addEventListener("click", () => this.stopRecording());
     recordRow.appendChild(stopBtn);
 
@@ -376,6 +384,7 @@ export class Form {
 
     const timer = this.timer = document.createElement("span");
     timer.className = "vmsg-timer";
+    timer.title = "Preview Recording";
     timer.addEventListener("click", () => {
       if (audio.paused) {
         if (this.recorder.blobURL) {
@@ -391,6 +400,7 @@ export class Form {
     const saveBtn = this.saveBtn = document.createElement("button");
     saveBtn.className = "vmsg-button vmsg-save-button";
     saveBtn.textContent = "✓";
+    saveBtn.title = "Save Recording";
     saveBtn.disabled = true;
     saveBtn.addEventListener("click", () => this.close(this.recorder.blob));
     recordRow.appendChild(saveBtn);
@@ -430,6 +440,7 @@ export class Form {
     };
     pitchWrapper.appendChild(pitchSlider);
     this.popup.appendChild(pitchWrapper);
+    recordBtn.focus();
   }
 
   drawError(err) {
@@ -473,6 +484,7 @@ export class Form {
     this.recordBtn.style.display = "none";
     this.stopBtn.style.display = "";
     this.saveBtn.disabled = true;
+    this.stopBtn.focus();
     this.recorder.startRecording();
   }
 
@@ -480,6 +492,7 @@ export class Form {
     clearTimeout(this.tid);
     this.tid = 0;
     this.stopBtn.disabled = true;
+    this.recordBtn.focus();
     this.recorder.stopRecording();
   }
 
@@ -509,7 +522,7 @@ export function record(opts) {
     if (shown) throw new Error("Record form is already opened");
     shown = true;
     new Form(opts, resolve, reject);
-  // Use `.finally` once it's available in Safari and Edge.
+    // Use `.finally` once it's available in Safari and Edge.
   }).then(result => {
     shown = false;
     return result;
@@ -577,11 +590,11 @@ function createFadeBuffer(context, activeTime, fadeTime) {
     var value;
 
     if (i < fadeIndex1) {
-        value = Math.sqrt(i / fadeLength);
+      value = Math.sqrt(i / fadeLength);
     } else if (i >= fadeIndex2) {
-        value = Math.sqrt(1 - (i - fadeIndex2) / fadeLength);
+      value = Math.sqrt(1 - (i - fadeIndex2) / fadeLength);
     } else {
-        value = 1;
+      value = 1;
     }
 
     p[i] = value;
