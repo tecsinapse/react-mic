@@ -13,7 +13,6 @@ const VisualizerComponent = {
     canvasCtx.clearRect(0, 0, width, height)
 
     function draw() {
-      if (!running) return
       drawVisual = requestAnimationFrame(draw)
 
       analyser = AudioContext.getAnalyser()
