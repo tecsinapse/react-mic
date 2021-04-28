@@ -224,7 +224,7 @@ export class MicrophoneRecorderMp3 {
         blobURL: window.URL.createObjectURL(blob)
       }
 
-      mediaRecorder && mediaRecorder.close && mediaRecorder.close()
+      mediaRecorder.close()
       mediaRecorder = null
       clearInterval(timeInterval)
 
