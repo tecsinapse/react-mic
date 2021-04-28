@@ -169,7 +169,7 @@ export class Recorder {
     if (this.encNode) this.encNode.disconnect();
     if (this.encNode) this.encNode.onaudioprocess = null;
     if (this.stream) this.stopTracks();
-    if (this.audioCtx) this.audioCtx.close();
+    if (this.audioCtx && this.audioCtx.close) this.audioCtx.close();
     if (this.worker) {
       this.worker.terminate();
       this.worker = null;
