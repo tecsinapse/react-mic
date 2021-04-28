@@ -1,6 +1,6 @@
 {
   "name": "@tecsinapse/react-mic",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "Record audio from your microphone in WAV or MP3 and display as a sound oscillation (wrapper react-mic)",
   "author": "TecSinapse",
   "license": "MIT",
